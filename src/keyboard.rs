@@ -298,6 +298,33 @@ fn is_password_manager_shortcut_simple(event: &Event) -> bool {
     }
 }
 
+/// Check if this key event should be blocked from remote (Windows key, Alt+Tab, etc.)
+fn should_block_from_remote(event: &Event) -> bool {
+    match event.event_type {
+        EventType::KeyPress(key) | EventType::KeyRelease(key) => {
+            match key {
+                // Block Windows/Meta keys
+                Key::MetaLeft | Key::MetaRight => {
+                    log::debug!("Blocking Windows key from remote");
+                    true
+                },
+                // Block Tab when Alt is held (Alt+Tab)
+                Key::Tab => {
+                    let alt = rdev::get_modifier(Key::Alt) || rdev::get_modifier(Key::AltGr);
+                    if alt {
+                        log::debug!("Blocking Alt+Tab from remote");
+                        true
+                    } else {
+                        false
+                    }
+                },
+                _ => false
+            }
+        }
+        _ => false
+    }
+}
+
 
 fn start_grab_loop() {
     std::env::set_var("KEYBOARD_ONLY", "y");
@@ -413,7 +440,7 @@ fn start_grab_loop() {
                     _ => {}
                 }
                 
-                // Check if this is a password manager trigger shortcut
+                // Check if this event should be blocked from remote
                 if is_password_manager_shortcut_simple(&fixed_event) {
                     log::info!("Password manager shortcut detected, blocking from remote: {:?}", fixed_event);
                     log::info!("Modifiers at time of block - Ctrl: {}, Alt: {}, Shift: {}", 
@@ -421,6 +448,8 @@ fn start_grab_loop() {
                         rdev::get_modifier(Key::Alt) || rdev::get_modifier(Key::AltGr),
                         rdev::get_modifier(Key::ShiftLeft) || rdev::get_modifier(Key::ShiftRight));
                     // Don't send to remote, but pass to local system
+                } else if should_block_from_remote(&fixed_event) {
+                    // Block Windows key, Alt+Tab, etc. from remote but pass to local system
                 } else {
                     // Send all other events to remote with fixed scan code
                     client::process_event(&get_keyboard_mode(), &fixed_event, None);

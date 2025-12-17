@@ -43,8 +43,9 @@ Original issues:
 - Added trace-level logs for key releases and remote transmission
 - Added debug logs when fixing scan code 0 issues
 
-## Blocked Shortcuts
+## Blocked Shortcuts and Keys
 
+### Password Manager Shortcuts
 The following shortcuts will trigger password managers locally but won't be sent to the remote machine:
 
 | Shortcut | Password Manager |
@@ -56,6 +57,14 @@ The following shortcuts will trigger password managers locally but won't be sent
 | Alt+G | LastPass |
 | Ctrl+Alt+P | Generic/Custom |
 | Ctrl+Shift+P | Generic/Custom |
+
+### System Keys Blocked from Remote
+The following keys/shortcuts are blocked from being sent to the remote machine to keep them on the host:
+
+| Key/Shortcut | Purpose |
+|--------------|---------|
+| Windows Key (Left/Right) | Prevents opening remote Start menu |
+| Alt+Tab | Keeps task switching on host machine |
 
 ## Building from Source
 
@@ -122,14 +131,15 @@ To add or modify blocked shortcuts, edit the `is_password_manager_shortcut()` fu
 
 ### Changes Made
 
-1. **src/keyboard.rs:283-294**
-   - Changed from consuming key press events (`None`) to passing them through (`Some(event)`)
-   - Added check for password manager shortcuts before sending to remote
-
-2. **src/keyboard.rs:269-332**
-   - Added `is_password_manager_shortcut()` function
-   - Detects common password manager trigger combinations
-   - Includes logging for debugging
+1. **Modified keyboard event handling** (src/keyboard.rs)
+   - Changed from consuming key press events to passing them through
+   - Added multiple blocking functions:
+     - `is_password_manager_shortcut_simple()` - Blocks password manager shortcuts
+     - `should_block_from_remote()` - Blocks Windows key and Alt+Tab
+   - Added scan code fixing for two cases:
+     - Scan code 0: Uses MapVirtualKeyW to generate proper scan code
+     - Scan code = platform code: Handles ASCII-based password managers
+   - Added shift injection/release for proper capitalization
 
 ### How It Works
 
