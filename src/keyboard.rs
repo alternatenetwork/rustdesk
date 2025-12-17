@@ -5,6 +5,8 @@ use crate::platform::windows::{get_char_from_vk, get_unicode_from_vk};
 #[cfg(not(any(feature = "flutter", feature = "cli")))]
 use crate::ui::CUR_SESSION;
 use crate::ui_session_interface::{InvokeUiSession, Session};
+#[cfg(target_os = "windows")]
+use winapi::um::winuser::MapVirtualKeyW;
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 use crate::{client::get_key_state, common::GrabState};
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
@@ -13,7 +15,6 @@ use hbb_common::message_proto::*;
 #[cfg(any(target_os = "windows", target_os = "macos"))]
 use rdev::KeyCode;
 use rdev::{Event, EventType, Key};
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::{
     collections::HashMap,
@@ -266,6 +267,35 @@ fn get_keyboard_mode() -> String {
     "legacy".to_string()
 }
 
+/// Track whether we should inject shift for uppercase letters from password managers
+static SHOULD_INJECT_SHIFT: AtomicBool = AtomicBool::new(false);
+
+/// Simple check if this exact key combination is a password manager shortcut
+/// Only checks the final key press with modifiers, doesn't track state
+fn is_password_manager_shortcut_simple(event: &Event) -> bool {
+    match event.event_type {
+        EventType::KeyPress(key) => {
+            let ctrl = rdev::get_modifier(Key::ControlLeft) || rdev::get_modifier(Key::ControlRight);
+            let alt = rdev::get_modifier(Key::Alt) || rdev::get_modifier(Key::AltGr);
+            let shift = rdev::get_modifier(Key::ShiftLeft) || rdev::get_modifier(Key::ShiftRight);
+            
+            // Only block the exact moment when the shortcut is completed
+            match key {
+                Key::KeyA if ctrl && shift && !alt => true, // Ctrl+Shift+A (RDM)
+                Key::KeyA if ctrl && alt && !shift => true, // Ctrl+Alt+A (KeePass)
+                Key::KeyL if ctrl && shift && !alt => true, // Ctrl+Shift+L (Bitwarden)
+                Key::BackSlash if ctrl && !shift && !alt => true, // Ctrl+\ (1Password)
+                Key::KeyG if alt && !ctrl && !shift => true, // Alt+G (LastPass)
+                Key::KeyP if ctrl && alt => true, // Ctrl+Alt+P
+                Key::KeyP if ctrl && shift && !alt => true, // Ctrl+Shift+P
+                _ => false
+            }
+        }
+        _ => false
+    }
+}
+
+
 fn start_grab_loop() {
     std::env::set_var("KEYBOARD_ONLY", "y");
     #[cfg(any(target_os = "windows", target_os = "macos"))]
@@ -279,12 +309,149 @@ fn start_grab_loop() {
             let _scan_code = event.position_code;
             let _code = event.platform_code as KeyCode;
             let res = if KEYBOARD_HOOKED.load(Ordering::SeqCst) {
-                client::process_event(&get_keyboard_mode(), &event, None);
-                if is_press {
-                    None
-                } else {
-                    Some(event)
+                // Fix scan code issues from password managers before processing
+                let mut fixed_event = event.clone();
+                
+                #[cfg(target_os = "windows")]
+                {
+                    // Case 1: Fix scan code 0 (common with SendKeys API)
+                    if event.position_code == 0 {
+                        // Generate scan code from virtual key code
+                        let scan_code = unsafe {
+                            winapi::um::winuser::MapVirtualKeyW(event.platform_code, 0)
+                        };
+                        if scan_code != 0 {
+                            fixed_event.position_code = scan_code as u32;
+                            log::debug!("Fixed scan code 0: platform {} -> scan {}", event.platform_code, scan_code);
+                        }
+                    }
+                    // Case 2: Fix when scan code equals platform code (wrong API usage)
+                    else if event.position_code == event.platform_code && event.platform_code < 128 {
+                        // This is likely ASCII code being used as both scan and vk
+                        // For letters, VK codes are always uppercase (A-Z = 65-90)
+                        // but we need to preserve whether shift should be pressed
+                        let (proper_vk, needs_shift) = match event.platform_code {
+                            // Uppercase letters A-Z
+                            65..=90 => (event.platform_code, false), // Already uppercase, no shift needed
+                            // Lowercase letters a-z  
+                            97..=122 => {
+                                // Convert to uppercase VK code, but track that we DON'T want shift
+                                // The password manager already decided the case
+                                (event.platform_code - 32, false)
+                            },
+                            // Numbers
+                            48..=57 => (event.platform_code, false), // 0-9 map directly
+                            // Special keys that need mapping
+                            32 => (32, false),  // Space
+                            13 => (13, false),  // Enter
+                            _ => {
+                                log::debug!("Unknown ASCII code as scan/platform: {}", event.platform_code);
+                                (event.platform_code, false)
+                            }
+                        };
+                        
+                        // Get the proper scan code for this VK
+                        let scan_code = unsafe {
+                            winapi::um::winuser::MapVirtualKeyW(proper_vk, 0)
+                        };
+                        
+                        if scan_code != 0 {
+                            // Check if we need to inject Shift for uppercase letters
+                            let original_is_uppercase = event.platform_code >= 65 && event.platform_code <= 90;
+                            let shift_currently_down = rdev::get_modifier(Key::ShiftLeft) || rdev::get_modifier(Key::ShiftRight);
+                            
+                            if original_is_uppercase && !shift_currently_down {
+                                // Need to inject Shift press for uppercase letter
+                                let shift_press = Event {
+                                    time: event.time,
+                                    unicode: None,
+                                    event_type: EventType::KeyPress(Key::ShiftLeft),
+                                    platform_code: 160,
+                                    position_code: 42,
+                                    usb_hid: 0,
+                                    extra_data: 0,
+                                };
+                                client::process_event(&get_keyboard_mode(), &shift_press, None);
+                                log::debug!("Injected Shift press for uppercase '{}'", event.platform_code as u8 as char);
+                                
+                                // Mark that we need to release shift after this key
+                                SHOULD_INJECT_SHIFT.store(true, Ordering::SeqCst);
+                            }
+                            
+                            fixed_event.platform_code = proper_vk;
+                            fixed_event.position_code = scan_code as u32;
+                            log::debug!("Fixed scan=platform issue: ASCII {} ({}) -> VK {} scan {}", 
+                                event.platform_code, 
+                                if event.platform_code >= 32 && event.platform_code <= 126 { 
+                                    format!("'{}'", event.platform_code as u8 as char)
+                                } else { 
+                                    "non-printable".to_string() 
+                                },
+                                proper_vk, scan_code);
+                        }
+                    }
                 }
+                
+                // Log all key events for debugging
+                match fixed_event.event_type {
+                    EventType::KeyPress(key) => {
+                        // Extra logging for password manager diagnosis
+                        if event.position_code != fixed_event.position_code || event.platform_code != fixed_event.platform_code {
+                            log::debug!("KeyPress FIXED: {:?}, original scan: {}, platform: {} -> new scan: {}, platform: {}", 
+                                key, event.position_code, event.platform_code, fixed_event.position_code, fixed_event.platform_code);
+                        } else {
+                            log::debug!("KeyPress: {:?}, scan: {}, platform: {}", key, fixed_event.position_code, fixed_event.platform_code);
+                        }
+                        
+                        // Log ASCII interpretation if in printable range
+                        if fixed_event.platform_code >= 32 && fixed_event.platform_code <= 126 {
+                            log::trace!("  ASCII char: '{}'", fixed_event.platform_code as u8 as char);
+                        }
+                    }
+                    EventType::KeyRelease(key) => {
+                        log::trace!("KeyRelease: {:?}, scan: {}, platform: {}", key, fixed_event.position_code, fixed_event.platform_code);
+                    }
+                    _ => {}
+                }
+                
+                // Check if this is a password manager trigger shortcut
+                if is_password_manager_shortcut_simple(&fixed_event) {
+                    log::info!("Password manager shortcut detected, blocking from remote: {:?}", fixed_event);
+                    log::info!("Modifiers at time of block - Ctrl: {}, Alt: {}, Shift: {}", 
+                        rdev::get_modifier(Key::ControlLeft) || rdev::get_modifier(Key::ControlRight),
+                        rdev::get_modifier(Key::Alt) || rdev::get_modifier(Key::AltGr),
+                        rdev::get_modifier(Key::ShiftLeft) || rdev::get_modifier(Key::ShiftRight));
+                    // Don't send to remote, but pass to local system
+                } else {
+                    // Send all other events to remote with fixed scan code
+                    client::process_event(&get_keyboard_mode(), &fixed_event, None);
+                    log::trace!("Sent to remote: {:?}", fixed_event.event_type);
+                    
+                    // If we injected shift for an uppercase letter, release it after the key
+                    if SHOULD_INJECT_SHIFT.load(Ordering::SeqCst) && 
+                       matches!(fixed_event.event_type, EventType::KeyPress(_)) {
+                        // Check if this was a letter key
+                        if fixed_event.platform_code >= 65 && fixed_event.platform_code <= 90 {
+                            SHOULD_INJECT_SHIFT.store(false, Ordering::SeqCst);
+                            
+                            // Send shift release
+                            let shift_release = Event {
+                                time: fixed_event.time,
+                                unicode: None,
+                                event_type: EventType::KeyRelease(Key::ShiftLeft),
+                                platform_code: 160,
+                                position_code: 42,
+                                usb_hid: 0,
+                                extra_data: 0,
+                            };
+                            client::process_event(&get_keyboard_mode(), &shift_release, None);
+                            log::debug!("Injected Shift release after uppercase letter");
+                        }
+                    }
+                }
+                
+                // Always pass original event to local system
+                Some(event)
             } else {
                 Some(event)
             };
