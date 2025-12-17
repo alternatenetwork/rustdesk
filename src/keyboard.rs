@@ -16,6 +16,11 @@ use hbb_common::message_proto::*;
 use rdev::KeyCode;
 use rdev::{Event, EventType, Key};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::cell::RefCell;
+
+thread_local! {
+    static INJECTED_SHIFT: RefCell<bool> = RefCell::new(false);
+}
 use std::{
     collections::HashMap,
     sync::{Arc, Mutex},
@@ -267,8 +272,6 @@ fn get_keyboard_mode() -> String {
     "legacy".to_string()
 }
 
-/// Track whether we should inject shift for uppercase letters from password managers
-static SHOULD_INJECT_SHIFT: AtomicBool = AtomicBool::new(false);
 
 /// Simple check if this exact key combination is a password manager shortcut
 /// Only checks the final key press with modifiers, doesn't track state
@@ -328,26 +331,21 @@ fn start_grab_loop() {
                     // Case 2: Fix when scan code equals platform code (wrong API usage)
                     else if event.position_code == event.platform_code && event.platform_code < 128 {
                         // This is likely ASCII code being used as both scan and vk
-                        // For letters, VK codes are always uppercase (A-Z = 65-90)
-                        // but we need to preserve whether shift should be pressed
-                        let (proper_vk, needs_shift) = match event.platform_code {
-                            // Uppercase letters A-Z
-                            65..=90 => (event.platform_code, false), // Already uppercase, no shift needed
-                            // Lowercase letters a-z  
-                            97..=122 => {
-                                // Convert to uppercase VK code, but track that we DON'T want shift
-                                // The password manager already decided the case
-                                (event.platform_code - 32, false)
+                        // The password manager is sending raw ASCII where uppercase != lowercase
+                        
+                        // Track if we need to inject shift for uppercase letters
+                        let mut inject_shift = false;
+                        
+                        let proper_vk = match event.platform_code {
+                            // Uppercase letters A-Z - need shift held
+                            65..=90 => {
+                                inject_shift = true;
+                                event.platform_code
                             },
-                            // Numbers
-                            48..=57 => (event.platform_code, false), // 0-9 map directly
-                            // Special keys that need mapping
-                            32 => (32, false),  // Space
-                            13 => (13, false),  // Enter
-                            _ => {
-                                log::debug!("Unknown ASCII code as scan/platform: {}", event.platform_code);
-                                (event.platform_code, false)
-                            }
+                            // Lowercase letters a-z - convert to uppercase VK codes, no shift
+                            97..=122 => event.platform_code - 32,
+                            // Numbers and other ASCII codes map directly
+                            _ => event.platform_code,
                         };
                         
                         // Get the proper scan code for this VK
@@ -356,38 +354,39 @@ fn start_grab_loop() {
                         };
                         
                         if scan_code != 0 {
-                            // Check if we need to inject Shift for uppercase letters
-                            let original_is_uppercase = event.platform_code >= 65 && event.platform_code <= 90;
-                            let shift_currently_down = rdev::get_modifier(Key::ShiftLeft) || rdev::get_modifier(Key::ShiftRight);
-                            
-                            if original_is_uppercase && !shift_currently_down {
-                                // Need to inject Shift press for uppercase letter
-                                let shift_press = Event {
-                                    time: event.time,
-                                    unicode: None,
-                                    event_type: EventType::KeyPress(Key::ShiftLeft),
-                                    platform_code: 160,
-                                    position_code: 42,
-                                    usb_hid: 0,
-                                    extra_data: 0,
-                                };
-                                client::process_event(&get_keyboard_mode(), &shift_press, None);
-                                log::debug!("Injected Shift press for uppercase '{}'", event.platform_code as u8 as char);
-                                
-                                // Mark that we need to release shift after this key
-                                SHOULD_INJECT_SHIFT.store(true, Ordering::SeqCst);
-                            }
-                            
                             fixed_event.platform_code = proper_vk;
                             fixed_event.position_code = scan_code as u32;
-                            log::debug!("Fixed scan=platform issue: ASCII {} ({}) -> VK {} scan {}", 
+                            log::debug!("Fixed scan=platform issue: ASCII {} ({}) -> VK {} scan {} (shift needed: {})", 
                                 event.platform_code, 
                                 if event.platform_code >= 32 && event.platform_code <= 126 { 
                                     format!("'{}'", event.platform_code as u8 as char)
                                 } else { 
                                     "non-printable".to_string() 
                                 },
-                                proper_vk, scan_code);
+                                proper_vk, scan_code, inject_shift);
+                                
+                            // If this is a key press for an uppercase letter, inject shift press first
+                            if inject_shift && matches!(event.event_type, EventType::KeyPress(_)) {
+                                // Check if shift is already held
+                                let shift_held = rdev::get_modifier(Key::ShiftLeft) || rdev::get_modifier(Key::ShiftRight);
+                                if !shift_held {
+                                    // Inject shift press before the letter
+                                    let shift_press = Event {
+                                        time: event.time,
+                                        unicode: None,
+                                        event_type: EventType::KeyPress(Key::ShiftLeft),
+                                        platform_code: 160,
+                                        position_code: 42,
+                                        usb_hid: 0,
+                                        extra_data: 0,
+                                    };
+                                    client::process_event(&get_keyboard_mode(), &shift_press, None);
+                                    log::debug!("Injected Shift press for uppercase letter");
+                                    
+                                    // Mark that we injected shift
+                                    INJECTED_SHIFT.with(|f| *f.borrow_mut() = true);
+                                }
+                            }
                         }
                     }
                 }
@@ -427,13 +426,20 @@ fn start_grab_loop() {
                     client::process_event(&get_keyboard_mode(), &fixed_event, None);
                     log::trace!("Sent to remote: {:?}", fixed_event.event_type);
                     
-                    // If we injected shift for an uppercase letter, release it after the key
-                    if SHOULD_INJECT_SHIFT.load(Ordering::SeqCst) && 
-                       matches!(fixed_event.event_type, EventType::KeyPress(_)) {
-                        // Check if this was a letter key
-                        if fixed_event.platform_code >= 65 && fixed_event.platform_code <= 90 {
-                            SHOULD_INJECT_SHIFT.store(false, Ordering::SeqCst);
-                            
+                    // If we injected shift for an uppercase letter, release it after sending the key press
+                    if matches!(fixed_event.event_type, EventType::KeyPress(_)) &&
+                       fixed_event.platform_code >= 65 && fixed_event.platform_code <= 90 {
+                        let should_release = INJECTED_SHIFT.with(|f| {
+                            let injected = *f.borrow();
+                            if injected {
+                                *f.borrow_mut() = false;
+                                true
+                            } else {
+                                false
+                            }
+                        });
+                        
+                        if should_release {
                             // Send shift release
                             let shift_release = Event {
                                 time: fixed_event.time,
@@ -445,7 +451,7 @@ fn start_grab_loop() {
                                 extra_data: 0,
                             };
                             client::process_event(&get_keyboard_mode(), &shift_release, None);
-                            log::debug!("Injected Shift release after uppercase letter");
+                            log::debug!("Released injected Shift after uppercase letter");
                         }
                     }
                 }

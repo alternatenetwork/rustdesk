@@ -22,13 +22,22 @@ Original issues:
 - Modifier keys themselves are sent normally to maintain proper state
 - Location: `src/keyboard.rs` function `is_password_manager_shortcut_simple()`
 
-### 3. Fix Scan Code 0 Issues
+### 3. Fix Scan Code Issues  
 - Password managers often send simulated keystrokes with scan code 0
 - Added automatic scan code generation using Windows MapVirtualKeyW API
 - Converts virtual key codes to proper scan codes before sending to remote
-- Location: `src/keyboard.rs` lines ~309-322
+- Handles two cases:
+  - Scan code 0: Uses MapVirtualKeyW to generate proper scan code
+  - Scan code = platform code: ASCII codes being used incorrectly
+- Location: `src/keyboard.rs` lines ~316-391
 
-### 4. Enhanced Logging
+### 4. Handle Capitalization for ASCII-based Password Managers
+- Some password managers send raw ASCII codes where uppercase ≠ lowercase
+- Added logic to inject and release Shift key for uppercase letters
+- Preserves correct capitalization when password manager sends ASCII codes
+- Location: `src/keyboard.rs` lines ~335-457
+
+### 5. Enhanced Logging
 - Added info-level logs for detected password manager shortcuts
 - Added debug-level logs for all key presses with scan codes
 - Added trace-level logs for key releases and remote transmission
