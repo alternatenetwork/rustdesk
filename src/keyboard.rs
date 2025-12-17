@@ -304,19 +304,11 @@ fn should_block_from_remote(event: &Event) -> bool {
         EventType::KeyPress(key) | EventType::KeyRelease(key) => {
             match key {
                 // Block Windows/Meta keys
-                Key::MetaLeft | Key::MetaRight => {
-                    log::debug!("Blocking Windows key from remote");
-                    true
-                },
+                Key::MetaLeft | Key::MetaRight => true,
                 // Block Tab when Alt is held (Alt+Tab)
                 Key::Tab => {
                     let alt = rdev::get_modifier(Key::Alt) || rdev::get_modifier(Key::AltGr);
-                    if alt {
-                        log::debug!("Blocking Alt+Tab from remote");
-                        true
-                    } else {
-                        false
-                    }
+                    alt
                 },
                 _ => false
             }
@@ -352,7 +344,6 @@ fn start_grab_loop() {
                         };
                         if scan_code != 0 {
                             fixed_event.position_code = scan_code as u32;
-                            log::debug!("Fixed scan code 0: platform {} -> scan {}", event.platform_code, scan_code);
                         }
                     }
                     // Case 2: Fix when scan code equals platform code (wrong API usage)
@@ -383,14 +374,6 @@ fn start_grab_loop() {
                         if scan_code != 0 {
                             fixed_event.platform_code = proper_vk;
                             fixed_event.position_code = scan_code as u32;
-                            log::debug!("Fixed scan=platform issue: ASCII {} ({}) -> VK {} scan {} (shift needed: {})", 
-                                event.platform_code, 
-                                if event.platform_code >= 32 && event.platform_code <= 126 { 
-                                    format!("'{}'", event.platform_code as u8 as char)
-                                } else { 
-                                    "non-printable".to_string() 
-                                },
-                                proper_vk, scan_code, inject_shift);
                                 
                             // If this is a key press for an uppercase letter, inject shift press first
                             if inject_shift && matches!(event.event_type, EventType::KeyPress(_)) {
@@ -408,8 +391,6 @@ fn start_grab_loop() {
                                         extra_data: 0,
                                     };
                                     client::process_event(&get_keyboard_mode(), &shift_press, None);
-                                    log::debug!("Injected Shift press for uppercase letter");
-                                    
                                     // Mark that we injected shift
                                     INJECTED_SHIFT.with(|f| *f.borrow_mut() = true);
                                 }
@@ -418,42 +399,15 @@ fn start_grab_loop() {
                     }
                 }
                 
-                // Log all key events for debugging
-                match fixed_event.event_type {
-                    EventType::KeyPress(key) => {
-                        // Extra logging for password manager diagnosis
-                        if event.position_code != fixed_event.position_code || event.platform_code != fixed_event.platform_code {
-                            log::debug!("KeyPress FIXED: {:?}, original scan: {}, platform: {} -> new scan: {}, platform: {}", 
-                                key, event.position_code, event.platform_code, fixed_event.position_code, fixed_event.platform_code);
-                        } else {
-                            log::debug!("KeyPress: {:?}, scan: {}, platform: {}", key, fixed_event.position_code, fixed_event.platform_code);
-                        }
-                        
-                        // Log ASCII interpretation if in printable range
-                        if fixed_event.platform_code >= 32 && fixed_event.platform_code <= 126 {
-                            log::trace!("  ASCII char: '{}'", fixed_event.platform_code as u8 as char);
-                        }
-                    }
-                    EventType::KeyRelease(key) => {
-                        log::trace!("KeyRelease: {:?}, scan: {}, platform: {}", key, fixed_event.position_code, fixed_event.platform_code);
-                    }
-                    _ => {}
-                }
                 
                 // Check if this event should be blocked from remote
                 if is_password_manager_shortcut_simple(&fixed_event) {
-                    log::info!("Password manager shortcut detected, blocking from remote: {:?}", fixed_event);
-                    log::info!("Modifiers at time of block - Ctrl: {}, Alt: {}, Shift: {}", 
-                        rdev::get_modifier(Key::ControlLeft) || rdev::get_modifier(Key::ControlRight),
-                        rdev::get_modifier(Key::Alt) || rdev::get_modifier(Key::AltGr),
-                        rdev::get_modifier(Key::ShiftLeft) || rdev::get_modifier(Key::ShiftRight));
                     // Don't send to remote, but pass to local system
                 } else if should_block_from_remote(&fixed_event) {
                     // Block Windows key, Alt+Tab, etc. from remote but pass to local system
                 } else {
                     // Send all other events to remote with fixed scan code
                     client::process_event(&get_keyboard_mode(), &fixed_event, None);
-                    log::trace!("Sent to remote: {:?}", fixed_event.event_type);
                     
                     // If we injected shift for an uppercase letter, release it after sending the key press
                     if matches!(fixed_event.event_type, EventType::KeyPress(_)) &&
@@ -480,7 +434,6 @@ fn start_grab_loop() {
                                 extra_data: 0,
                             };
                             client::process_event(&get_keyboard_mode(), &shift_release, None);
-                            log::debug!("Released injected Shift after uppercase letter");
                         }
                     }
                 }

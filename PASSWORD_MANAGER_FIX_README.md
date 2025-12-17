@@ -37,11 +37,6 @@ Original issues:
 - Preserves correct capitalization when password manager sends ASCII codes
 - Location: `src/keyboard.rs` lines ~335-457
 
-### 5. Enhanced Logging
-- Added info-level logs for detected password manager shortcuts
-- Added debug-level logs for all key presses with scan codes
-- Added trace-level logs for key releases and remote transmission
-- Added debug logs when fixing scan code 0 issues
 
 ## Blocked Shortcuts and Keys
 
@@ -116,16 +111,10 @@ python build.py --flutter --release
 4. The password should be typed on the remote machine
 5. The trigger shortcut itself should NOT appear in the remote text field
 
-## Logging
-
-To see the password manager detection logs:
-- Set environment variable: `RUST_LOG=rustdesk=debug`
-- Run RustDesk from command line to see console output
-- Look for messages like "Password manager shortcut detected"
 
 ## Customizing Shortcuts
 
-To add or modify blocked shortcuts, edit the `is_password_manager_shortcut()` function in `src/keyboard.rs`.
+To add or modify blocked shortcuts, edit the `is_password_manager_shortcut_simple()` function in `src/keyboard.rs`.
 
 ## Technical Details
 
@@ -171,12 +160,11 @@ Many password managers send simulated keystrokes with scan code 0, which can cau
 ### Autotype not working
 1. Ensure RustDesk has keyboard control enabled
 2. Check if your password manager's shortcut is in the blocked list
-3. Enable debug logging to see what shortcuts are being detected
+3. Try using Map mode instead of Legacy mode in RustDesk
 
 ### Shortcuts still appearing on remote
 1. Your password manager may use a different shortcut
-2. Check logs to see what key combination is being pressed
-3. Add the shortcut to `is_password_manager_shortcut()` function
+2. Add the shortcut to `is_password_manager_shortcut_simple()` function
 
 ## Contributing
 
