@@ -60,6 +60,7 @@ The following keys/shortcuts are blocked from being sent to the remote machine t
 |--------------|---------|
 | Windows Key (Left/Right) | Prevents opening remote Start menu |
 | Alt+Tab | Keeps task switching on host machine |
+| Windows + any key | All keys blocked while Windows key is held (e.g., Win+R, Win+L, Win+Shift+S) |
 
 ## Building from Source
 

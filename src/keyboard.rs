@@ -310,7 +310,11 @@ fn should_block_from_remote(event: &Event) -> bool {
                     let alt = rdev::get_modifier(Key::Alt) || rdev::get_modifier(Key::AltGr);
                     alt
                 },
-                _ => false
+                // Block all other keys when Windows key is held
+                _ => {
+                    let windows_held = rdev::get_modifier(Key::MetaLeft) || rdev::get_modifier(Key::MetaRight);
+                    windows_held
+                }
             }
         }
         _ => false
