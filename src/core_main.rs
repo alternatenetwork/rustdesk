@@ -160,6 +160,14 @@ pub fn core_main() -> Option<Vec<String>> {
         return try_send_by_dbus(args[0].clone());
     }
 
+    // windows uni (url) go here.
+    #[cfg(all(target_os = "windows", feature = "flutter"))]
+    if args.len() > 0 && args[0].starts_with(&crate::get_uri_prefix()) {
+        // On Windows, when launched from a browser with a URL like rustdesk://connect/12345?password=abc
+        // we need to parse it and convert to proper command line arguments
+        return parse_and_handle_windows_url(args[0].clone());
+    }
+
     #[cfg(windows)]
     if !crate::platform::is_installed()
         && args.is_empty()
@@ -794,6 +802,20 @@ fn try_send_by_dbus(uni_links: String) -> Option<Vec<String>> {
             return Some(Vec::new());
         }
     }
+}
+
+#[cfg(all(target_os = "windows", feature = "flutter"))]
+fn parse_and_handle_windows_url(uni_links: String) -> Option<Vec<String>> {
+    use winapi::um::winuser::WM_USER;
+    // Try to send to existing instance first
+    let res = crate::platform::send_message_to_hnwd(
+        &crate::platform::FLUTTER_RUNNER_WIN32_WINDOW_CLASS,
+        &crate::get_app_name(),
+        (WM_USER + 2) as _, // referred from unilinks desktop pub
+        uni_links.as_str(),
+        false,
+    );
+    return if res { None } else { Some(Vec::new()) };
 }
 
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
