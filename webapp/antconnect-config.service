@@ -1,0 +1,20 @@
+[Unit]
+Description=ANTConnect Configuration Server
+After=network.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+WorkingDirectory=/opt/webapp
+Environment="RUSTDESK_PRIVATE_KEY=/var/lib/rustdesk-server/id_ed25519"
+Environment="PORT=8080"
+Environment="API_SERVER=https://connect.antme.com"
+Environment="RENDEZVOUS_SERVER=connect.antme.com"
+Environment="PUBLIC_KEY=SC5N44NeqIn1Jd65zaBAR58+PMpxv+NxkvyX7ZXHGJc="
+ExecStart=/usr/bin/java -jar /opt/webapp/custom-config-server-1.0.0.jar
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
