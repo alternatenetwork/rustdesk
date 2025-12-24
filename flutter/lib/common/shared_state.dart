@@ -1,4 +1,5 @@
 import 'package:flutter_hbb/common.dart';
+import 'package:flutter_hbb/models/platform_model.dart';
 import 'package:get/get.dart';
 
 import '../consts.dart';
@@ -339,6 +340,31 @@ class UnreadChatCountState {
   static RxInt find(String id) => Get.find<RxInt>(tag: tag(id));
 }
 
+class LockAfterSessionEndState {
+  static String tag(String id) => 'lock_after_session_end_$id';
+
+  static void init(String id, SessionID sessionId) {
+    final key = tag(id);
+    final value = bind.sessionGetToggleOptionSync(
+        sessionId: sessionId, arg: 'lock-after-session-end');
+    if (!Get.isRegistered<RxBool>(tag: key)) {
+      final RxBool state = value.obs;
+      Get.put<RxBool>(state, tag: key);
+    } else {
+      Get.find<RxBool>(tag: key).value = value;
+    }
+  }
+
+  static void delete(String id) {
+    final key = tag(id);
+    if (Get.isRegistered<RxBool>(tag: key)) {
+      Get.delete<RxBool>(tag: key);
+    }
+  }
+
+  static RxBool find(String id) => Get.find<RxBool>(tag: tag(id));
+}
+
 initSharedStates(String id) {
   PrivacyModeState.init(id);
   BlockInputState.init(id);
@@ -364,5 +390,6 @@ removeSharedStates(String id) {
   FingerprintState.delete(id);
   PeerBoolOption.delete(id, kOptionZoomCursor);
   UnreadChatCountState.delete(id);
+  LockAfterSessionEndState.delete(id);
   if (isMobile) ConnectionTypeState.delete(id);
 }

@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_hbb/common/widgets/audio_input.dart';
@@ -365,6 +366,10 @@ class _RemoteToolbarState extends State<RemoteToolbar> {
     toolbarItems.add(_ChatMenu(id: widget.id, ffi: widget.ffi));
     if (!isWeb) {
       toolbarItems.add(_VoiceCallMenu(id: widget.id, ffi: widget.ffi));
+    }
+    // Add Ctrl+Alt+Del button
+    if (widget.ffi.connType == ConnType.defaultConn) {
+      toolbarItems.add(_CtrlAltDelMenu(id: widget.id, ffi: widget.ffi));
     }
     if (!isWeb) toolbarItems.add(_RecordMenu());
     toolbarItems.add(_CloseMenu(id: widget.id, ffi: widget.ffi));
@@ -1214,11 +1219,18 @@ class _DisplayMenuState extends State<_DisplayMenu> {
           if (v.isEmpty) return Offstage();
           return Column(
               children: v
-                  .map((e) => CkbMenuButton(
+                  .map((e) {
+                    // Check if this is the lock after session end toggle
+                    final isLockOption = e.child is Text && 
+                        (e.child as Text).data?.contains('Lock after session end') == true;
+                    return CkbMenuButton(
                       value: e.value,
                       onChanged: e.onChanged,
                       child: e.child,
-                      ffi: ffi))
+                      // Don't pass ffi for lock option to prevent auto-close
+                      ffi: isLockOption ? null : ffi,
+                    );
+                  })
                   .toList());
         });
   }
@@ -2154,6 +2166,40 @@ class _RecordMenu extends StatelessWidget {
   }
 }
 
+class _CtrlAltDelMenu extends StatelessWidget {
+  final String id;
+  final FFI ffi;
+  const _CtrlAltDelMenu({Key? key, required this.id, required this.ffi})
+      : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    final ffiModel = ffi.ffiModel;
+    final pi = ffiModel.pi;
+    final sessionId = ffi.sessionId;
+    
+    // Only show if supported
+    if (!ffi.ffiModel.keyboard || ffi.ffiModel.viewOnly ||
+        (pi.platform != kPeerPlatformLinux && !pi.sasEnabled)) {
+      return Offstage();
+    }
+    
+    return _IconMenuButton(
+      icon: Icon(
+        Icons.keyboard_command_key,
+        size: _ToolbarTheme.buttonSize * 0.6,
+        color: _ToolbarTheme.blueColor,
+      ),
+      tooltip: 'Ctrl+Alt+Del',
+      onPressed: () {
+        bind.sessionCtrlAltDel(sessionId: sessionId);
+      },
+      color: _ToolbarTheme.blueColor,
+      hoverColor: _ToolbarTheme.hoverBlueColor,
+    );
+  }
+}
+
 class _CloseMenu extends StatelessWidget {
   final String id;
   final FFI ffi;
@@ -2162,9 +2208,56 @@ class _CloseMenu extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Watch for reactive state changes
+    bool lockAfterSessionEnd = false;
+    try {
+      // Try to get from reactive state first
+      final lockState = LockAfterSessionEndState.find(id);
+      return Obx(() {
+        lockAfterSessionEnd = lockState.value;
+        debugPrint('_CloseMenu lock state: $lockAfterSessionEnd');
+        return _buildButton(lockAfterSessionEnd);
+      });
+    } catch (e) {
+      // If reactive state doesn't exist, use direct check
+      lockAfterSessionEnd = bind.sessionGetToggleOptionSync(
+          sessionId: ffi.sessionId, arg: 'lock-after-session-end');
+      return _buildButton(lockAfterSessionEnd);
+    }
+  }
+  
+  Widget _buildButton(bool lockAfterSessionEnd) {
     return _IconMenuButton(
-      assetName: 'assets/close.svg',
-      tooltip: 'Close',
+      icon: Stack(
+        alignment: Alignment.center,
+        children: [
+          SvgPicture.asset(
+            'assets/close.svg',
+            colorFilter: ColorFilter.mode(_ToolbarTheme.redColor, BlendMode.srcIn),
+            width: _ToolbarTheme.buttonSize * 0.6,
+            height: _ToolbarTheme.buttonSize * 0.6,
+          ),
+          if (lockAfterSessionEnd)
+            Positioned(
+              right: -2,
+              bottom: -2,
+              child: Container(
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  shape: BoxShape.circle,
+                  border: Border.all(color: _ToolbarTheme.redColor, width: 1),
+                ),
+                padding: EdgeInsets.all(2),
+                child: Icon(
+                  Icons.lock,
+                  size: _ToolbarTheme.buttonSize * 0.25,
+                  color: _ToolbarTheme.redColor,
+                ),
+              ),
+            ),
+        ],
+      ),
+      tooltip: lockAfterSessionEnd ? 'Close (Lock after session end)' : 'Close',
       onPressed: () async {
         if (await showConnEndAuditDialogCloseCanceled(ffi: ffi)) {
           return;
@@ -2411,9 +2504,7 @@ class CkbMenuButton extends StatelessWidget {
       child: child,
       onChanged: onChanged != null
           ? (bool? value) {
-              if (ffi != null) {
-                _menuDismissCallback(ffi!);
-              }
+              // Don't auto-close for checkbox items
               onChanged?.call(value);
             }
           : null,
@@ -2445,7 +2536,7 @@ class RdoMenuButton<T> extends StatelessWidget {
       value: value,
       groupValue: groupValue,
       child: child,
-      closeOnActivate: closeOnActivate,
+      closeOnActivate: false, // Disabled auto-close behavior
       onChanged: onChanged != null
           ? (T? value) {
               if (ffi != null && closeOnActivate) {
