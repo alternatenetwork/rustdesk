@@ -1356,6 +1356,18 @@ impl Connection {
         );
         #[allow(unused_mut)]
         let mut username = crate::platform::get_active_username();
+        
+        // Check if at login/lock screen
+        #[cfg(windows)]
+        let is_lock_screen = crate::platform::windows::is_logon_ui().unwrap_or(false);
+        #[cfg(not(windows))]
+        let is_lock_screen = false;
+        
+        // If at lock screen, override username to indicate this state
+        if is_lock_screen {
+            username = "".to_string(); // Empty username will trigger lock detection on client
+        }
+        
         let mut res = LoginResponse::new();
         let mut pi = PeerInfo {
             username: username.clone(),
@@ -1678,8 +1690,35 @@ impl Connection {
         pi: &mut PeerInfo,
         wait_session_id_confirm: &mut bool,
     ) {
+        log::info!("[WINDOWS_SESSIONS_DEBUG] handle_windows_specific_session called");
         let sessions = crate::platform::get_available_sessions(true);
-        if let Some(current_sid) = crate::platform::get_current_process_session_id() {
+        log::info!("[WINDOWS_SESSIONS_DEBUG] Available sessions: {:?}", sessions);
+        
+        let current_sid_opt = crate::platform::get_current_process_session_id();
+        log::info!("[WINDOWS_SESSIONS_DEBUG] Current session ID: {:?}", current_sid_opt);
+        
+        // Check if at lock screen
+        let is_lock_screen = crate::platform::windows::is_logon_ui().unwrap_or(false);
+        log::info!("[WINDOWS_SESSIONS_DEBUG] Lock screen check: {}", is_lock_screen);
+        
+        if let Some(mut current_sid) = current_sid_opt {
+            // If at lock screen, override current_sid to 0 to indicate login screen state
+            if is_lock_screen {
+                log::info!("[WINDOWS_SESSIONS_DEBUG] At lock screen, overriding current_sid from {} to 0", current_sid);
+                current_sid = 0;
+            }
+            
+            // Always send windows_sessions data for debugging
+            log::info!("[WINDOWS_SESSIONS_DEBUG] Setting windows_sessions in PeerInfo: current_sid={}, sessions count={}", current_sid, sessions.len());
+            pi.windows_sessions = Some(WindowsSessions {
+                sessions: sessions.clone(),
+                current_sid,
+                ..Default::default()
+            })
+            .into();
+            log::info!("[WINDOWS_SESSIONS_DEBUG] windows_sessions set in PeerInfo: {:?}", pi.windows_sessions);
+            
+            // Original logic for wait_session_id_confirm
             if crate::platform::is_installed()
                 && crate::platform::is_share_rdp()
                 && raii::AuthedConnID::non_port_forward_conn_count() == 1
@@ -1687,14 +1726,10 @@ impl Connection {
                 && sessions.iter().any(|e| e.sid == current_sid)
                 && get_version_number(&self.lr.version) >= get_version_number("1.2.4")
             {
-                pi.windows_sessions = Some(WindowsSessions {
-                    sessions,
-                    current_sid,
-                    ..Default::default()
-                })
-                .into();
                 *wait_session_id_confirm = true;
             }
+        } else {
+            log::info!("[WINDOWS_SESSIONS_DEBUG] No current session ID found");
         }
     }
 
@@ -1946,6 +1981,7 @@ impl Connection {
     }
 
     async fn handle_login_request_without_validation(&mut self, lr: &LoginRequest) {
+        log::info!("[WINDOWS_SESSIONS_DEBUG] handle_login_request_without_validation called from {}", lr.my_id);
         self.lr = lr.clone();
         self.peer_argb = crate::str2color(&format!("{}{}", &lr.my_id, &lr.my_platform), 0xff);
         if let Some(o) = lr.option.as_ref() {
