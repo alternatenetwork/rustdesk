@@ -2185,10 +2185,16 @@ class _CtrlAltDelMenu extends StatelessWidget {
     }
     
     return _IconMenuButton(
-      icon: Icon(
-        Icons.keyboard_command_key,
-        size: _ToolbarTheme.buttonSize * 0.6,
-        color: _ToolbarTheme.blueColor,
+      icon: Container(
+        width: _ToolbarTheme.buttonSize,
+        height: _ToolbarTheme.buttonSize,
+        child: Center(
+          child: Icon(
+            Icons.keyboard_command_key,
+            size: _ToolbarTheme.buttonSize * 0.85,
+            color: Colors.white,
+          ),
+        ),
       ),
       tooltip: 'Ctrl+Alt+Del',
       onPressed: () {
@@ -2215,7 +2221,6 @@ class _CloseMenu extends StatelessWidget {
       final lockState = LockAfterSessionEndState.find(id);
       return Obx(() {
         lockAfterSessionEnd = lockState.value;
-        debugPrint('_CloseMenu lock state: $lockAfterSessionEnd');
         return _buildButton(lockAfterSessionEnd);
       });
     } catch (e) {
@@ -2228,34 +2233,40 @@ class _CloseMenu extends StatelessWidget {
   
   Widget _buildButton(bool lockAfterSessionEnd) {
     return _IconMenuButton(
-      icon: Stack(
-        alignment: Alignment.center,
-        children: [
-          SvgPicture.asset(
-            'assets/close.svg',
-            colorFilter: ColorFilter.mode(_ToolbarTheme.redColor, BlendMode.srcIn),
-            width: _ToolbarTheme.buttonSize * 0.6,
-            height: _ToolbarTheme.buttonSize * 0.6,
-          ),
-          if (lockAfterSessionEnd)
-            Positioned(
-              right: -2,
-              bottom: -2,
-              child: Container(
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  shape: BoxShape.circle,
-                  border: Border.all(color: _ToolbarTheme.redColor, width: 1),
-                ),
-                padding: EdgeInsets.all(2),
-                child: Icon(
-                  Icons.lock,
-                  size: _ToolbarTheme.buttonSize * 0.25,
-                  color: _ToolbarTheme.redColor,
-                ),
+      icon: Container(
+        width: _ToolbarTheme.buttonSize,
+        height: _ToolbarTheme.buttonSize,
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            Center(
+              child: SvgPicture.asset(
+                'assets/close.svg',
+                colorFilter: ColorFilter.mode(Colors.white, BlendMode.srcIn),
+                width: _ToolbarTheme.buttonSize * 0.85,
+                height: _ToolbarTheme.buttonSize * 0.85,
               ),
             ),
-        ],
+            if (lockAfterSessionEnd)
+              Positioned(
+                right: 0,
+                bottom: 0,
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    shape: BoxShape.circle,
+                    border: Border.all(color: _ToolbarTheme.redColor, width: 2),
+                  ),
+                  padding: EdgeInsets.all(1),
+                  child: Icon(
+                    Icons.lock,
+                    size: _ToolbarTheme.buttonSize * 0.4,
+                    color: _ToolbarTheme.redColor,
+                  ),
+                ),
+              ),
+          ],
+        ),
       ),
       tooltip: lockAfterSessionEnd ? 'Close (Lock after session end)' : 'Close',
       onPressed: () async {

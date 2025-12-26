@@ -325,49 +325,7 @@ class FfiModel with ChangeNotifier {
       } else if (name == 'connection_ready') {
         setConnectionType(peerId, evt['secure'] == 'true',
             evt['direct'] == 'true', evt['stream_type'] ?? '');
-        // Auto-toggle lock after session end based on login state
-        // Note: This requires the server to send windows_sessions data
-        // If not available, the feature won't auto-detect
-        if (parent.target?.connType == ConnType.defaultConn && _pi.platform == kPeerPlatformWindows) {
-          debugPrint('connection_ready: Checking lock after session end auto-toggle');
-          debugPrint('Windows sessions data available: ${_pi.windowsSessions != null}');
-          // Wait a bit for peer info to be fully populated
-          Future.delayed(Duration(milliseconds: 1500), () {
-            debugPrint('Auto-toggle check: isOnLoginScreen = ${_pi.isOnLoginScreen}');
-            final currentLockState = bind.sessionGetToggleOptionSync(sessionId: sessionId, arg: 'lock-after-session-end');
-            if (_pi.isOnLoginScreen) {
-              // On login screen, enable lock after session end
-              debugPrint('On login screen, enabling lock. Current state: $currentLockState');
-              if (!currentLockState) {
-                // If it's off, toggle it on
-                bind.sessionToggleOption(sessionId: sessionId, value: 'lock-after-session-end');
-                // Update reactive state
-                try {
-                  final lockState = LockAfterSessionEndState.find(peerId);
-                  lockState.value = true;
-                } catch (e) {
-                  LockAfterSessionEndState.init(peerId, sessionId);
-                }
-              }
-            } else if (_pi.windowsSessions != null) {
-              // Only auto-disable if we have session data and it shows logged in
-              debugPrint('Logged in session detected, disabling lock. Current state: $currentLockState');
-              if (currentLockState) {
-                // If it's on, toggle it off
-                bind.sessionToggleOption(sessionId: sessionId, value: 'lock-after-session-end');
-                // Update reactive state
-                try {
-                  final lockState = LockAfterSessionEndState.find(peerId);
-                  lockState.value = false;
-                } catch (e) {
-                  LockAfterSessionEndState.init(peerId, sessionId);
-                }
-              }
-            } else {
-              debugPrint('No windows_sessions data available - cannot auto-detect login screen state');
-            }
-          });
-        }
+        // Auto-lock logic moved to handlePeerInfo to ensure peer info is available
       } else if (name == 'switch_display') {
         // switch display is kept for backward compatibility
         handleSwitchDisplay(evt, sessionId, peerId);
@@ -1338,13 +1296,45 @@ class FfiModel with ChangeNotifier {
       
       // Handle windows sessions data
       final windowsSessionsStr = evt['windows_sessions'];
-      debugPrint('handlePeerInfo: windows_sessions = $windowsSessionsStr');
       if (windowsSessionsStr != null && windowsSessionsStr != '') {
         try {
           _pi.windowsSessions = json.decode(windowsSessionsStr);
-          debugPrint('Decoded windowsSessions: ${_pi.windowsSessions}');
         } catch (e) {
-          debugPrint('Failed to decode windowsSessions $e');
+          debugPrint('Failed to decode windowsSessions: $e');
+          _pi.windowsSessions = null;
+        }
+      } else {
+        _pi.windowsSessions = null;
+      }
+      
+      // Check for auto-lock after receiving peer info
+      if (!isCache && parent.target?.connType == ConnType.defaultConn && _pi.platform == kPeerPlatformWindows) {
+        final currentLockState = bind.sessionGetToggleOptionSync(sessionId: sessionId, arg: 'lock-after-session-end');
+        
+        if (_pi.isOnLoginScreen) {
+          // On login screen, enable lock after session end
+          if (!currentLockState) {
+            bind.sessionToggleOption(sessionId: sessionId, value: 'lock-after-session-end');
+            // Update reactive state
+            try {
+              final lockState = LockAfterSessionEndState.find(peerId);
+              lockState.value = true;
+            } catch (e) {
+              LockAfterSessionEndState.init(peerId, sessionId);
+            }
+          }
+        } else if (_pi.windowsSessions != null) {
+          // Only auto-disable if we have session data and it shows logged in
+          if (currentLockState) {
+            bind.sessionToggleOption(sessionId: sessionId, value: 'lock-after-session-end');
+            // Update reactive state
+            try {
+              final lockState = LockAfterSessionEndState.find(peerId);
+              lockState.value = false;
+            } catch (e) {
+              LockAfterSessionEndState.init(peerId, sessionId);
+            }
+          }
         }
       }
     }
@@ -3969,23 +3959,10 @@ class PeerInfo with ChangeNotifier {
       platformAdditions[kPlatformAdditionsIddImpl] == 'amyuni_idd';
 
   bool get isOnLoginScreen {
-    // Check if we have windows sessions data and current_sid is 0
-    // which indicates we're on the login screen
-    if (platform == kPeerPlatformWindows) {
-      // First check if we have windows sessions data
-      if (windowsSessions != null) {
-        final currentSid = windowsSessions!['current_sid'] ?? -1;
-        // Also check if sessions list is empty which might indicate login screen
-        final sessions = windowsSessions!['sessions'] as List<dynamic>?;
-        final hasNoSessions = sessions == null || sessions.isEmpty;
-        debugPrint('isOnLoginScreen: current_sid = $currentSid, hasNoSessions = $hasNoSessions, windowsSessions = $windowsSessions');
-        return currentSid == 0 || hasNoSessions;
-      } else {
-        // Fallback: If no windows_sessions data, check username
-        // On login screen, username is often empty or "Unknown"
-        debugPrint('isOnLoginScreen: No windows_sessions data, checking username = "$username"');
-        return username.isEmpty || username.toLowerCase() == 'unknown' || username.toLowerCase() == 'unknow';
-      }
+    // Check if we're on the login screen based on windows sessions data
+    if (platform == kPeerPlatformWindows && windowsSessions != null) {
+      final currentSid = windowsSessions!['current_sid'] ?? -1;
+      return currentSid == 0;
     }
     return false;
   }
