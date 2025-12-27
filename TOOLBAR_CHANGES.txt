@@ -1,0 +1,83 @@
+RUSTDESK TOOLBAR CUSTOM CHANGES
+================================
+
+This document lists all custom modifications made to the RustDesk toolbar and related functionality.
+
+## FIXES IMPLEMENTED
+
+1. **Windows Sessions Parsing**: Fixed JSON parsing for windows_sessions data to properly detect login screen state
+2. **Lock Indicator State**: Fixed reactive state management to properly show lock icon when enabled
+3. **Debug Logging**: Added debug logging to help troubleshoot login screen detection
+4. **Menu Close Prevention**: Fixed so the menu doesn't close when toggling "Lock after session end"
+
+## LIMITATIONS
+
+- **Auto-detection requires server support**: The auto-detection of login/lock screen state requires the RustDesk server to send `windows_sessions` data
+- **Current server limitation**: The server (v1.4.4 in your case) is not sending this data (`windows_sessions: MessageField(None)`)
+- **Client-side only**: Since we can only modify the client side, we cannot force the server to send this information
+- **Manual toggle**: Users need to manually toggle "Lock after session end" when the server doesn't support auto-detection
+
+## 1. Auto-toggle "Lock after session end" based on login state
+
+### Files Modified:
+- `flutter/lib/models/model.dart`
+- `flutter/lib/common/shared_state.dart`
+- `flutter/lib/common/widgets/toolbar.dart`
+
+### Changes:
+- Added `windowsSessions` field to PeerInfo class to store Windows session information
+- Added `isOnLoginScreen` getter to PeerInfo that checks if current_sid is 0 (login screen)
+- Added LockAfterSessionEndState reactive state class to track the lock option state
+- Added auto-toggle logic in connection_ready handler:
+  - When connecting to login screen: enables "Lock after session end"
+  - When connecting to logged-in session: disables "Lock after session end"
+- Updated the toggle menu to use reactive state for real-time updates
+
+## 2. Updated disconnect button icon with lock indicator
+
+### Files Modified:
+- `flutter/lib/desktop/widgets/remote_toolbar.dart`
+
+### Changes:
+- Modified _CloseMenu widget to show a lock icon overlay on the close button
+- Used Stack widget to overlay a small lock icon on the bottom-right of the X icon
+- Made the button reactive using Obx and LockAfterSessionEndState
+- Updated tooltip to show "Close (Lock after session end)" when enabled
+
+## 3. Added Ctrl+Alt+Del button to toolbar
+
+### Files Modified:
+- `flutter/lib/desktop/widgets/remote_toolbar.dart`
+
+### Changes:
+- Created new _CtrlAltDelMenu widget class
+- Added button with keyboard_command_key icon
+- Positioned button left of the lightning icon (between voice call and record buttons)
+- Only shows when:
+  - Connection type is defaultConn
+  - Keyboard is enabled
+  - Not in view-only mode
+  - Platform is Linux OR sasEnabled is true
+- Calls bind.sessionCtrlAltDel() on press
+
+## 4. Fixed submenu auto-close behavior
+
+### Files Modified:
+- `flutter/lib/desktop/widgets/remote_toolbar.dart`
+
+### Changes:
+- Removed _menuDismissCallback calls from CkbMenuButton widget
+- Removed _menuDismissCallback calls from MenuButton widget  
+- Set closeOnActivate to false in RdoMenuButton widget
+- Removed auto-close logic from onChanged handlers
+- Submenus now stay open when clicking on options
+
+## Summary
+
+These changes enhance the RustDesk remote desktop experience by:
+1. Intelligently managing lock behavior based on session state
+2. Providing visual feedback about lock state in the UI
+3. Making frequently used Ctrl+Alt+Del more accessible
+4. Improving submenu interaction by keeping them open for multiple selections
+
+All changes maintain backward compatibility and follow the existing code patterns in the RustDesk codebase.

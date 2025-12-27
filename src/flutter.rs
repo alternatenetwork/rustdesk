@@ -891,6 +891,9 @@ impl InvokeUiSession for FlutterHandler {
     }
 
     fn set_peer_info(&self, pi: &PeerInfo) {
+        // Store peer info for later use
+        self.peer_info.write().unwrap().clone_from(pi);
+        
         let displays = Self::make_displays_msg(&pi.displays);
         let mut features: HashMap<&str, bool> = Default::default();
         for ref f in pi.features.iter() {
@@ -914,6 +917,27 @@ impl InvokeUiSession for FlutterHandler {
             .for_each(|h| {
                 h.renderer.is_support_multi_ui_session = is_support_multi_ui_session;
             });
+        
+        // Serialize windows_sessions if available
+        let windows_sessions = if let Some(ws) = &pi.windows_sessions.0 {
+            // Manually construct JSON since WindowsSessions doesn't implement Serialize
+            let sessions_json: Vec<serde_json::Value> = ws.sessions.iter().map(|s| {
+                serde_json::json!({
+                    "sid": s.sid,
+                    "name": s.name,
+                })
+            }).collect();
+            
+            let json_data = serde_json::json!({
+                "current_sid": ws.current_sid,
+                "sessions": sessions_json,
+            });
+            
+            json_data.to_string()
+        } else {
+            "".to_string()
+        };
+        
         self.push_event(
             "peer_info",
             &[
@@ -927,6 +951,7 @@ impl InvokeUiSession for FlutterHandler {
                 ("current_display", &pi.current_display.to_string()),
                 ("resolutions", &resolutions),
                 ("platform_additions", &pi.platform_additions),
+                ("windows_sessions", &windows_sessions),
             ],
             &[],
         );

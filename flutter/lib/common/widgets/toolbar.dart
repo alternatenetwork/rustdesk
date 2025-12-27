@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_hbb/common.dart';
@@ -666,6 +667,20 @@ Future<List<TToggleMenu>> toolbarDisplayToggle(
             ? (value) {
                 if (value == null) return;
                 bind.sessionToggleOption(sessionId: sessionId, value: option);
+                // Update the reactive state immediately
+                Future.delayed(Duration(milliseconds: 100), () {
+                  try {
+                    final lockState = LockAfterSessionEndState.find(id);
+                    // Re-read the state to ensure we have the correct value
+                    final newValue = bind.sessionGetToggleOptionSync(
+                        sessionId: sessionId, arg: option);
+                    debugPrint('Lock after session end toggled to: $newValue');
+                    lockState.value = newValue;
+                  } catch (e) {
+                    // If state doesn't exist yet, initialize it
+                    LockAfterSessionEndState.init(id, sessionId);
+                  }
+                });
               }
             : null,
         child: Text(translate('Lock after session end'))));

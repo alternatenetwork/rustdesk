@@ -152,6 +152,8 @@ class _RemotePageState extends State<RemotePage>
           sessionId: sessionId, arg: 'show-remote-cursor');
       _zoomCursor.value = bind.sessionGetToggleOptionSync(
           sessionId: sessionId, arg: kOptionZoomCursor);
+      // Initialize lock after session end state
+      LockAfterSessionEndState.init(widget.id, sessionId);
     });
     DesktopMultiWindow.addListener(this);
     // if (!_isCustomCursorInited) {

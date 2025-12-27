@@ -325,6 +325,7 @@ class FfiModel with ChangeNotifier {
       } else if (name == 'connection_ready') {
         setConnectionType(peerId, evt['secure'] == 'true',
             evt['direct'] == 'true', evt['stream_type'] ?? '');
+        // Auto-lock logic moved to handlePeerInfo to ensure peer info is available
       } else if (name == 'switch_display') {
         // switch display is kept for backward compatibility
         handleSwitchDisplay(evt, sessionId, peerId);
@@ -1292,6 +1293,50 @@ class FfiModel with ChangeNotifier {
           debugPrint('Failed to decode platformAdditions $e');
         }
       }
+      
+      // Handle windows sessions data
+      final windowsSessionsStr = evt['windows_sessions'];
+      if (windowsSessionsStr != null && windowsSessionsStr != '') {
+        try {
+          _pi.windowsSessions = json.decode(windowsSessionsStr);
+        } catch (e) {
+          debugPrint('Failed to decode windowsSessions: $e');
+          _pi.windowsSessions = null;
+        }
+      } else {
+        _pi.windowsSessions = null;
+      }
+      
+      // Check for auto-lock after receiving peer info
+      if (!isCache && parent.target?.connType == ConnType.defaultConn && _pi.platform == kPeerPlatformWindows) {
+        final currentLockState = bind.sessionGetToggleOptionSync(sessionId: sessionId, arg: 'lock-after-session-end');
+        
+        if (_pi.isOnLoginScreen) {
+          // On login screen, enable lock after session end
+          if (!currentLockState) {
+            bind.sessionToggleOption(sessionId: sessionId, value: 'lock-after-session-end');
+            // Update reactive state
+            try {
+              final lockState = LockAfterSessionEndState.find(peerId);
+              lockState.value = true;
+            } catch (e) {
+              LockAfterSessionEndState.init(peerId, sessionId);
+            }
+          }
+        } else if (_pi.windowsSessions != null) {
+          // Only auto-disable if we have session data and it shows logged in
+          if (currentLockState) {
+            bind.sessionToggleOption(sessionId: sessionId, value: 'lock-after-session-end');
+            // Update reactive state
+            try {
+              final lockState = LockAfterSessionEndState.find(peerId);
+              lockState.value = false;
+            } catch (e) {
+              LockAfterSessionEndState.init(peerId, sessionId);
+            }
+          }
+        }
+      }
     }
 
     _pi.isSet.value = true;
@@ -1473,6 +1518,20 @@ class FfiModel with ChangeNotifier {
   /// Handle the peer info synchronization event based on [evt].
   handleSyncPeerInfo(
       Map<String, dynamic> evt, SessionID sessionId, String peerId) async {
+    debugPrint('handleSyncPeerInfo: evt keys = ${evt.keys.toList()}');
+    
+    // Check for windows_sessions in sync event
+    final windowsSessionsStr = evt['windows_sessions'];
+    if (windowsSessionsStr != null && windowsSessionsStr != '') {
+      debugPrint('sync_peer_info: windows_sessions = $windowsSessionsStr');
+      try {
+        _pi.windowsSessions = json.decode(windowsSessionsStr);
+        debugPrint('Decoded windowsSessions in sync: ${_pi.windowsSessions}');
+      } catch (e) {
+        debugPrint('Failed to decode windowsSessions in sync $e');
+      }
+    }
+    
     if (evt['displays'] != null) {
       cachedPeerData.peerInfo['displays'] = evt['displays'];
       List<dynamic> displays = json.decode(evt['displays']);
@@ -3873,6 +3932,7 @@ class PeerInfo with ChangeNotifier {
   Features features = Features();
   List<Resolution> resolutions = [];
   Map<String, dynamic> platformAdditions = {};
+  Map<String, dynamic>? windowsSessions;
 
   RxInt displaysCount = 0.obs;
   RxBool isSet = false.obs;
@@ -3897,6 +3957,15 @@ class PeerInfo with ChangeNotifier {
       platformAdditions[kPlatformAdditionsIddImpl] == 'rustdesk_idd';
   bool get isAmyuniIdd =>
       platformAdditions[kPlatformAdditionsIddImpl] == 'amyuni_idd';
+
+  bool get isOnLoginScreen {
+    // Check if we're on the login screen based on windows sessions data
+    if (platform == kPeerPlatformWindows && windowsSessions != null) {
+      final currentSid = windowsSessions!['current_sid'] ?? -1;
+      return currentSid == 0;
+    }
+    return false;
+  }
 
   Display? tryGetDisplay({int? display}) {
     if (displays.isEmpty) {
