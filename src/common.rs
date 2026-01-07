@@ -1754,6 +1754,37 @@ pub fn load_custom_client() {
         read_custom_client(data.trim());
         return;
     }
+
+    // On macOS, check external locations first
+    #[cfg(target_os = "macos")]
+    {
+        // Try user-specific config first: ~/Library/Application Support/com.carriez.ANTConnect/custom.txt
+        let mut user_path = Config::get_home();
+        user_path.push("Library");
+        user_path.push("Application Support");
+        user_path.push("com.carriez.ANTConnect");
+        user_path.push("custom.txt");
+        
+        if user_path.is_file() {
+            log::info!("Found custom.txt at user location: {:?}", user_path);
+            if let Ok(data) = std::fs::read_to_string(&user_path) {
+                read_custom_client(&data.trim());
+                return;
+            }
+        }
+        
+        // Try system-wide config: /Library/Application Support/com.carriez.ANTConnect/custom.txt
+        let system_path = std::path::Path::new("/Library/Application Support/com.carriez.ANTConnect/custom.txt");
+        if system_path.is_file() {
+            log::info!("Found custom.txt at system location: {:?}", system_path);
+            if let Ok(data) = std::fs::read_to_string(&system_path) {
+                read_custom_client(&data.trim());
+                return;
+            }
+        }
+    }
+
+    // Fallback to bundle location (original behavior)
     let Some(path) = std::env::current_exe().map_or(None, |x| x.parent().map(|x| x.to_path_buf()))
     else {
         return;
@@ -1762,6 +1793,7 @@ pub fn load_custom_client() {
     let path = path.join("../Resources");
     let path = path.join("custom.txt");
     if path.is_file() {
+        log::info!("Found custom.txt at bundle location: {:?}", path);
         let Ok(data) = std::fs::read_to_string(&path) else {
             log::error!("Failed to read custom client config");
             return;
