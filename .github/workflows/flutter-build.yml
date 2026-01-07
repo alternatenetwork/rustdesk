@@ -726,6 +726,24 @@ jobs:
           fi
           ./build.py --flutter --hwcodec --unix-file-copy-paste ${{ matrix.job.extra-build-args }}
 
+      - name: Rename app bundle if needed
+        run: |
+          # Check what app was actually built and rename if necessary
+          APP_PATH="./flutter/build/macos/Build/Products/Release"
+          if [ -d "$APP_PATH/RustDesk.app" ]; then
+            echo "Found RustDesk.app, renaming to ANTConnect.app"
+            mv "$APP_PATH/RustDesk.app" "$APP_PATH/ANTConnect.app"
+            # Update the Info.plist inside the app bundle
+            /usr/libexec/PlistBuddy -c "Set :CFBundleName ANTConnect" "$APP_PATH/ANTConnect.app/Contents/Info.plist" || true
+            /usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName ANTConnect" "$APP_PATH/ANTConnect.app/Contents/Info.plist" || true
+          elif [ -d "$APP_PATH/ANTConnect.app" ]; then
+            echo "ANTConnect.app already exists"
+          else
+            echo "ERROR: No app bundle found in $APP_PATH"
+            ls -la "$APP_PATH"
+            exit 1
+          fi
+
       - name: create unsigned dmg
         if: env.UPLOAD_ARTIFACT == 'true'
         run: |
