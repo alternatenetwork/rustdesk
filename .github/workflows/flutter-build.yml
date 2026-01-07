@@ -713,7 +713,7 @@ jobs:
       - name: Customize macOS app name
         run: |
           chmod +x res/customize_macos_app.sh
-          ./res/customize_macos_app.sh "ANTConnect" "Alternate Network Technologies" "antconnect" "com.alternatenetworktechnologies"
+          ./res/customize_macos_app.sh "ANTConnect" "Alternate Network Technologies"
 
       - name: Build rustdesk
         run: |
