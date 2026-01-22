@@ -2243,7 +2243,8 @@ bool handleUriLink({List<String>? cmdArgs, Uri? uri, String? uriString}) {
   String? password;
   String? switchUuid;
   bool? forceRelay;
-  String? macroPassword;
+  String? agentMacroPassword;
+  String? clientMacroPassword;
   for (int i = 0; i < args.length; i++) {
     switch (args[i]) {
       case '--connect':
@@ -2294,8 +2295,12 @@ bool handleUriLink({List<String>? cmdArgs, Uri? uri, String? uriString}) {
       case '--relay':
         forceRelay = true;
         break;
-      case '--macro_password':
-        macroPassword = args[i + 1];
+      case '--agent_macro_password':
+        agentMacroPassword = args[i + 1];
+        i++;
+        break;
+      case '--client_macro_password':
+        clientMacroPassword = args[i + 1];
         i++;
         break;
       default:
@@ -2310,7 +2315,8 @@ bool handleUriLink({List<String>? cmdArgs, Uri? uri, String? uriString}) {
               password: password,
               switchUuid: switchUuid,
               forceRelay: forceRelay,
-              macroPassword: macroPassword);
+              agentMacroPassword: agentMacroPassword,
+              clientMacroPassword: clientMacroPassword);
         });
         break;
       case UriLinkType.fileTransfer:
@@ -2421,7 +2427,8 @@ List<String>? urlLinkToCmdArgs(Uri uri) {
   if (isMobile && id != null) {
     final forceRelay = queryParameters["relay"] != null;
     final password = queryParameters["password"];
-    final macroPassword = queryParameters["macro_password"];
+    final agentMacroPassword = queryParameters["agent_macro_password"];
+    final clientMacroPassword = queryParameters["client_macro_password"];
 
     // Determine connection type based on command
     if (command == '--file-transfer') {
@@ -2439,7 +2446,8 @@ List<String>? urlLinkToCmdArgs(Uri uri) {
           isTerminal: true, forceRelay: forceRelay, password: password);
     } else {
       // Default to remote desktop for '--connect', '--play', or direct connection
-      connect(Get.context!, id, forceRelay: forceRelay, password: password, macroPassword: macroPassword);
+      connect(Get.context!, id, forceRelay: forceRelay, password: password,
+          agentMacroPassword: agentMacroPassword, clientMacroPassword: clientMacroPassword);
     }
     return null;
   }
@@ -2453,8 +2461,10 @@ List<String>? urlLinkToCmdArgs(Uri uri) {
     if (password != null) args.addAll(['--password', password]);
     String? switch_uuid = param["switch_uuid"];
     if (switch_uuid != null) args.addAll(['--switch_uuid', switch_uuid]);
-    String? macroPassword = param["macro_password"];
-    if (macroPassword != null) args.addAll(['--macro_password', macroPassword]);
+    String? agentMacroPassword = param["agent_macro_password"];
+    if (agentMacroPassword != null) args.addAll(['--agent_macro_password', agentMacroPassword]);
+    String? clientMacroPassword = param["client_macro_password"];
+    if (clientMacroPassword != null) args.addAll(['--client_macro_password', clientMacroPassword]);
     if (param["relay"] != null) args.add("--relay");
     return args;
   }
@@ -2472,7 +2482,8 @@ connectMainDesktop(String id,
     String? password,
     String? connToken,
     bool? isSharedPassword,
-    String? macroPassword}) async {
+    String? agentMacroPassword,
+    String? clientMacroPassword}) async {
   if (isFileTransfer) {
     await rustDeskWinManager.newFileTransfer(id,
         password: password,
@@ -2502,7 +2513,8 @@ connectMainDesktop(String id,
         password: password,
         isSharedPassword: isSharedPassword,
         forceRelay: forceRelay,
-        macroPassword: macroPassword);
+        agentMacroPassword: agentMacroPassword,
+        clientMacroPassword: clientMacroPassword);
   }
 }
 
@@ -2521,7 +2533,8 @@ connect(BuildContext context, String id,
     String? password,
     String? connToken,
     bool? isSharedPassword,
-    String? macroPassword}) async {
+    String? agentMacroPassword,
+    String? clientMacroPassword}) async {
   if (id == '') return;
   if (!isDesktop || desktopType == DesktopType.main) {
     try {
@@ -2554,7 +2567,8 @@ connect(BuildContext context, String id,
         password: password,
         isSharedPassword: isSharedPassword,
         forceRelay: forceRelay,
-        macroPassword: macroPassword,
+        agentMacroPassword: agentMacroPassword,
+        clientMacroPassword: clientMacroPassword,
       );
     } else {
       await rustDeskWinManager.call(WindowType.Main, kWindowConnect, {
@@ -2568,7 +2582,8 @@ connect(BuildContext context, String id,
         'isSharedPassword': isSharedPassword,
         'forceRelay': forceRelay,
         'connToken': connToken,
-        'macroPassword': macroPassword,
+        'agentMacroPassword': agentMacroPassword,
+        'clientMacroPassword': clientMacroPassword,
       });
     }
   } else {

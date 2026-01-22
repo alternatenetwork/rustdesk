@@ -230,7 +230,8 @@ class RustDeskMultiWindowManager {
     bool? isRDP,
     bool? isSharedPassword,
     String? connToken,
-    String? macroPassword,
+    String? agentMacroPassword,
+    String? clientMacroPassword,
   }) async {
     var params = {
       "type": type.index,
@@ -250,8 +251,11 @@ class RustDeskMultiWindowManager {
     if (connToken != null) {
       params['connToken'] = connToken;
     }
-    if (macroPassword != null) {
-      params['macro_password'] = macroPassword;
+    if (agentMacroPassword != null) {
+      params['agent_macro_password'] = agentMacroPassword;
+    }
+    if (clientMacroPassword != null) {
+      params['client_macro_password'] = clientMacroPassword;
     }
     final msg = jsonEncode(params);
 
@@ -277,7 +281,8 @@ class RustDeskMultiWindowManager {
     bool? isSharedPassword,
     String? switchUuid,
     bool? forceRelay,
-    String? macroPassword,
+    String? agentMacroPassword,
+    String? clientMacroPassword,
   }) async {
     return await newSession(
       WindowType.RemoteDesktop,
@@ -288,7 +293,8 @@ class RustDeskMultiWindowManager {
       forceRelay: forceRelay,
       switchUuid: switchUuid,
       isSharedPassword: isSharedPassword,
-      macroPassword: macroPassword,
+      agentMacroPassword: agentMacroPassword,
+      clientMacroPassword: clientMacroPassword,
     );
   }
 
