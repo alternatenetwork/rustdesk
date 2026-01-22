@@ -371,6 +371,10 @@ class _RemoteToolbarState extends State<RemoteToolbar> {
     if (widget.ffi.connType == ConnType.defaultConn) {
       toolbarItems.add(_CtrlAltDelMenu(id: widget.id, ffi: widget.ffi));
     }
+    // Add Macro Password button
+    if (widget.ffi.connType == ConnType.defaultConn) {
+      toolbarItems.add(_MacroPasswordMenu(id: widget.id, ffi: widget.ffi));
+    }
     if (!isWeb) toolbarItems.add(_RecordMenu());
     toolbarItems.add(_CloseMenu(id: widget.id, ffi: widget.ffi));
     final toolbarBorderRadius = BorderRadius.all(Radius.circular(4.0));
@@ -2177,13 +2181,13 @@ class _CtrlAltDelMenu extends StatelessWidget {
     final ffiModel = ffi.ffiModel;
     final pi = ffiModel.pi;
     final sessionId = ffi.sessionId;
-    
+
     // Only show if supported
     if (!ffi.ffiModel.keyboard || ffi.ffiModel.viewOnly ||
         (pi.platform != kPeerPlatformLinux && !pi.sasEnabled)) {
       return Offstage();
     }
-    
+
     return _IconMenuButton(
       icon: Container(
         width: _ToolbarTheme.buttonSize,
@@ -2203,6 +2207,62 @@ class _CtrlAltDelMenu extends StatelessWidget {
       color: _ToolbarTheme.blueColor,
       hoverColor: _ToolbarTheme.hoverBlueColor,
     );
+  }
+}
+
+class _MacroPasswordMenu extends StatelessWidget {
+  final String id;
+  final FFI ffi;
+  const _MacroPasswordMenu({Key? key, required this.id, required this.ffi})
+      : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    final sessionId = ffi.sessionId;
+
+    // Only show if macro_password is set and keyboard is enabled
+    if (!MacroPasswordState.hasPassword(id) ||
+        !ffi.ffiModel.keyboard ||
+        ffi.ffiModel.viewOnly) {
+      return Offstage();
+    }
+
+    return _IconMenuButton(
+      icon: Container(
+        width: _ToolbarTheme.buttonSize,
+        height: _ToolbarTheme.buttonSize,
+        child: Center(
+          child: Icon(
+            Icons.password,
+            size: _ToolbarTheme.buttonSize * 0.85,
+            color: Colors.white,
+          ),
+        ),
+      ),
+      tooltip: 'Type Macro Password',
+      onPressed: () => _sendMacroPassword(sessionId),
+      color: _ToolbarTheme.blueColor,
+      hoverColor: _ToolbarTheme.hoverBlueColor,
+    );
+  }
+
+  void _sendMacroPassword(SessionID sessionId) {
+    final password = MacroPasswordState.find(id).value;
+    if (password.isNotEmpty) {
+      bind.sessionInputString(sessionId: sessionId, value: password);
+      Future.delayed(Duration(milliseconds: 50), () {
+        bind.sessionInputKey(
+          sessionId: sessionId,
+          name: 'VK_ENTER',
+          down: false,
+          press: true,
+          alt: false,
+          ctrl: false,
+          shift: false,
+          command: false,
+        );
+      });
+    }
   }
 }
 

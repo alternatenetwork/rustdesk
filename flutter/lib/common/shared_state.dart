@@ -365,6 +365,37 @@ class LockAfterSessionEndState {
   static RxBool find(String id) => Get.find<RxBool>(tag: tag(id));
 }
 
+class MacroPasswordState {
+  static String tag(String id) => 'macro_password_$id';
+
+  static void init(String id, String? macroPassword) {
+    final key = tag(id);
+    if (!Get.isRegistered<RxString>(tag: key)) {
+      final RxString state = (macroPassword ?? '').obs;
+      Get.put<RxString>(state, tag: key);
+    } else {
+      Get.find<RxString>(tag: key).value = macroPassword ?? '';
+    }
+  }
+
+  static void delete(String id) {
+    final key = tag(id);
+    if (Get.isRegistered<RxString>(tag: key)) {
+      Get.delete<RxString>(tag: key);
+    }
+  }
+
+  static RxString find(String id) => Get.find<RxString>(tag: tag(id));
+
+  static bool hasPassword(String id) {
+    try {
+      return find(id).value.isNotEmpty;
+    } catch (_) {
+      return false;
+    }
+  }
+}
+
 initSharedStates(String id) {
   PrivacyModeState.init(id);
   BlockInputState.init(id);
@@ -391,5 +422,6 @@ removeSharedStates(String id) {
   PeerBoolOption.delete(id, kOptionZoomCursor);
   UnreadChatCountState.delete(id);
   LockAfterSessionEndState.delete(id);
+  MacroPasswordState.delete(id);
   if (isMobile) ConnectionTypeState.delete(id);
 }
