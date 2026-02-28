@@ -544,16 +544,11 @@ extern "C"
 
     DWORD get_current_session(BOOL include_rdp)
     {
-        auto rdp_or_console = WTSGetActiveConsoleSessionId();
+        auto console_session = WTSGetActiveConsoleSessionId();
         if (!include_rdp)
-            return rdp_or_console;
+            return console_session;
         PWTS_SESSION_INFOA pInfos;
         DWORD count;
-        auto rdp = "rdp";
-        auto nrdp = strlen(rdp);
-        // https://github.com/rustdesk/rustdesk/discussions/937#discussioncomment-12373814 citrix session
-        auto ica = "ica";
-        auto nica = strlen(ica);
         if (WTSEnumerateSessionsA(WTS_CURRENT_SERVER_HANDLE, NULL, 1, &pInfos, &count))
         {
             for (DWORD i = 0; i < count; i++)
@@ -569,15 +564,11 @@ extern "C"
                         WTSFreeMemory(pInfos);
                         return id;
                     }
-                    if (!strnicmp(info.pWinStationName, rdp, nrdp) || !strnicmp(info.pWinStationName, ica, nica))
-                    {
-                        rdp_or_console = info.SessionId;
-                    }
                 }
             }
             WTSFreeMemory(pInfos);
         }
-        return rdp_or_console;
+        return console_session;
     }
 
     uint32_t get_active_user(PWSTR bufin, uint32_t nin, BOOL rdp)
